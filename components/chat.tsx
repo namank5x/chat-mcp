@@ -162,6 +162,7 @@ export function Chat({
               setMessages={setMessages}
               sendMessage={sendMessage}
               selectedVisibilityType={visibilityType}
+              selectedChatModel={initialChatModel}
             />
           )}
         </div>

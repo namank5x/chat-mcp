@@ -32,6 +32,7 @@ import { ArrowDown } from 'lucide-react';
 import { useScrollToBottom } from '@/hooks/use-scroll-to-bottom';
 import type { VisibilityType } from './visibility-selector';
 import type { Attachment, ChatMessage } from '@/lib/types';
+import { chatModels } from '@/lib/ai/models';
 
 function PureMultimodalInput({
   chatId,
@@ -46,6 +47,7 @@ function PureMultimodalInput({
   sendMessage,
   className,
   selectedVisibilityType,
+  selectedChatModel,
 }: {
   chatId: string;
   input: string;
@@ -59,9 +61,14 @@ function PureMultimodalInput({
   sendMessage: UseChatHelpers<ChatMessage>['sendMessage'];
   className?: string;
   selectedVisibilityType: VisibilityType;
+  selectedChatModel: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
+
+  // Check if the selected model supports images
+  const modelConfig = chatModels.find(m => m.id === selectedChatModel);
+  const supportsImages = modelConfig?.supportsImages ?? true;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -180,6 +187,11 @@ function PureMultimodalInput({
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
 
+      if (!supportsImages) {
+        toast.error('The selected model does not support image inputs. Please switch to a multimodal model to upload files.');
+        return;
+      }
+
       setUploadQueue(files.map((file) => file.name));
 
       try {
@@ -199,7 +211,7 @@ function PureMultimodalInput({
         setUploadQueue([]);
       }
     },
-    [setAttachments],
+    [setAttachments, supportsImages],
   );
 
   const { isAtBottom, scrollToBottom } = useScrollToBottom();
@@ -317,7 +329,11 @@ function PureMultimodalInput({
         />
         <PromptInputToolbar className="px-2 py-1">
           <PromptInputTools className="gap-2">
-            <AttachmentsButton fileInputRef={fileInputRef} status={status} />
+            <AttachmentsButton 
+              fileInputRef={fileInputRef} 
+              status={status} 
+              supportsImages={supportsImages} 
+            />
           </PromptInputTools>
           {status === 'submitted' ? (
             <StopButton stop={stop} setMessages={setMessages} />
@@ -343,6 +359,8 @@ export const MultimodalInput = memo(
     if (!equal(prevProps.attachments, nextProps.attachments)) return false;
     if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType)
       return false;
+    if (prevProps.selectedChatModel !== nextProps.selectedChatModel)
+      return false;
 
     return true;
   },
@@ -351,20 +369,29 @@ export const MultimodalInput = memo(
 function PureAttachmentsButton({
   fileInputRef,
   status,
+  supportsImages,
 }: {
   fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
   status: UseChatHelpers<ChatMessage>['status'];
+  supportsImages: boolean;
 }) {
+  const isDisabled = status !== 'ready' || !supportsImages;
+  
   return (
     <Button
       data-testid="attachments-button"
       className="rounded-md rounded-bl-lg p-[7px] h-fit dark:border-zinc-700 hover:dark:bg-zinc-900 hover:bg-zinc-200"
       onClick={(event) => {
         event.preventDefault();
+        if (!supportsImages) {
+          toast.error('The selected model does not support image inputs. Please switch to a multimodal model to upload files.');
+          return;
+        }
         fileInputRef.current?.click();
       }}
-      disabled={status !== 'ready'}
+      disabled={isDisabled}
       variant="ghost"
+      title={!supportsImages ? 'Selected model does not support images' : undefined}
     >
       <PaperclipIcon size={14} />
     </Button>

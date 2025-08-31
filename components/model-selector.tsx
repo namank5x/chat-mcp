@@ -40,7 +40,7 @@ export function ModelSelector({
     () =>
       availableChatModels.find(
         (chatModel) => chatModel.id === optimisticModelId,
-      ),
+      ) || availableChatModels[0],
     [optimisticModelId, availableChatModels],
   );
 
@@ -58,7 +58,7 @@ export function ModelSelector({
           variant="outline"
           className="md:px-2 md:h-[34px]"
         >
-          {selectedChatModel?.name}
+          {selectedChatModel?.name || 'Select Model'}
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
