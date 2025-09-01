@@ -36,6 +36,7 @@ import { after } from 'next/server';
 import { ChatSDKError } from '@/lib/errors';
 import type { ChatMessage } from '@/lib/types';
 import type { ChatModel } from '@/lib/ai/models';
+import { chatModels } from '@/lib/ai/models';
 import type { VisibilityType } from '@/components/visibility-selector';
 
 export const maxDuration = 60;
@@ -124,6 +125,33 @@ export async function POST(request: Request) {
     const messagesFromDb = await getMessagesByChatId({ id });
     const uiMessages = [...convertToUIMessages(messagesFromDb), message];
 
+    // Check if the selected model supports images
+    const modelConfig = chatModels.find(m => m.id === selectedChatModel);
+    const supportsImages = modelConfig?.supportsImages ?? true;
+
+    // Filter out image attachments for text-only models
+    const processedUiMessages = supportsImages ? uiMessages : uiMessages.map(msg => {
+      if (msg.role === 'user' && msg.parts) {
+        const textOnlyParts = msg.parts.filter(part => part.type === 'text');
+        const hasImageParts = msg.parts.some(part => part.type === 'file');
+        
+        if (hasImageParts && textOnlyParts.length === 0) {
+          // If message has only images, add a fallback text
+          return {
+            ...msg,
+            parts: [{ type: 'text', text: '[Image attachments were removed - selected model does not support images]' }]
+          };
+        } else if (hasImageParts) {
+          // If message has both text and images, keep only text parts
+          return {
+            ...msg,
+            parts: textOnlyParts
+          };
+        }
+      }
+      return msg;
+    });
+
     const { longitude, latitude, city, country } = geolocation(request);
 
     const requestHints: RequestHints = {
@@ -149,15 +177,18 @@ export async function POST(request: Request) {
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
 
+    console.log('Selected chat model:', selectedChatModel);
+    console.log('Creating stream with model:', selectedChatModel);
+    
     const stream = createUIMessageStream({
       execute: ({ writer: dataStream }) => {
         const result = streamText({
           model: myProvider.languageModel(selectedChatModel),
           system: systemPrompt({ selectedChatModel, requestHints }),
-          messages: convertToModelMessages(uiMessages),
+          messages: convertToModelMessages(processedUiMessages),
           stopWhen: stepCountIs(5),
           experimental_activeTools:
-            selectedChatModel === 'chat-model-reasoning'
+            selectedChatModel === 'gpt-oss-120b'
               ? []
               : [
                   'getWeather',
@@ -219,9 +250,15 @@ export async function POST(request: Request) {
       return new Response(stream.pipeThrough(new JsonToSseTransformStream()));
     }
   } catch (error) {
+    console.error('Chat API Error:', error);
     if (error instanceof ChatSDKError) {
       return error.toResponse();
     }
+    // Return generic error for unhandled cases
+    return new Response(JSON.stringify({ error: 'Internal server error', details: error?.message }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
 
